@@ -1,0 +1,5 @@
+# Copy to `.dev.vars` and fill in for local `npm run dev`.
+# .dev.vars is gitignored. In production these are set via `wrangler secret put`.
+ANTHROPIC_API_KEY="sk-ant-..."
+ADMIN_PASSWORD="choose-something-strong"
+GITHUB_TOKEN="github_pat_..."

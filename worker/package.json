@@ -1,0 +1,17 @@
+{
+  "name": "mgp2026-admin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker that lets an admin rewrite mgp2026/index.html via Claude and commit it to GitHub.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "secret:anthropic": "wrangler secret put ANTHROPIC_API_KEY",
+    "secret:password": "wrangler secret put ADMIN_PASSWORD",
+    "secret:github": "wrangler secret put GITHUB_TOKEN"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

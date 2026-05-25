@@ -1546,8 +1546,9 @@ function carouselGo(id,idx){
 })();
 
 /* ─── ADMIN PANEL ─── */
-let adminLoggedIn=false;let isRecording=false;let mediaRecorder=null;let audioChunks=[];
-const ADMIN_PASSWORD='admin123';
+let adminLoggedIn=false;let isRecording=false;let voiceRec=null;let adminPassword='';
+/* Set this to the deployed Cloudflare Worker URL, e.g. 'https://mgp2026-admin.<account>.workers.dev' */
+const ADMIN_WORKER_URL='';
 
 function updateTime(){
   const now=new Date();
@@ -1567,22 +1568,35 @@ function closeAdminModal(){
   if(modal)modal.classList.remove('open');
   adminLogout();
 }
-function adminLogin(){
+async function adminLogin(){
+  if(!ADMIN_WORKER_URL){showAdminStatus('ADMIN_WORKER_URL is not configured in index.html','error');return;}
   const pwd=document.getElementById('admin-password');
   const pass=pwd?pwd.value:'';
-  if(pass===ADMIN_PASSWORD){
-    adminLoggedIn=true;
+  if(!pass){showAdminStatus('Enter a password','error');return;}
+  showAdminStatus('Verifying...','info');
+  try{
+    const res=await fetch(ADMIN_WORKER_URL.replace(/\/$/,'')+'/verify',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password:pass})
+    });
+    if(!res.ok){
+      const data=await res.json().catch(()=>({}));
+      showAdminStatus(data.error||('Login failed ('+res.status+')'),'error');
+      return;
+    }
+    adminLoggedIn=true;adminPassword=pass;
     const authSection=document.getElementById('admin-auth-section');
     const contentSection=document.getElementById('admin-content-section');
     if(authSection)authSection.style.display='none';
     if(contentSection)contentSection.style.display='block';
     showAdminStatus('Login successful!','success');
-  } else {
-    showAdminStatus('Invalid password','error');
+  }catch(err){
+    showAdminStatus('Network error: '+err.message,'error');
   }
 }
 function adminLogout(){
-  adminLoggedIn=false;
+  adminLoggedIn=false;adminPassword='';
   const authSection=document.getElementById('admin-auth-section');
   const contentSection=document.getElementById('admin-content-section');
   if(authSection)authSection.style.display='block';
@@ -1603,89 +1617,63 @@ function showAdminStatus(msg,type){
 }
 async function submitAdminPrompt(){
   if(!adminLoggedIn)return;
-  const prompt=document.getElementById('admin-prompt');
-  const text=prompt?prompt.value.trim():'';
+  if(!ADMIN_WORKER_URL){showAdminStatus('ADMIN_WORKER_URL is not configured in index.html','error');return;}
+  const promptEl=document.getElementById('admin-prompt');
+  const text=promptEl?promptEl.value.trim():'';
   if(!text){showAdminStatus('Please describe your change','error');return;}
   const btn=event.target;
   btn.disabled=true;
   btn.textContent='Applying...';
-  showAdminStatus('Claude is rewriting the app...','info');
+  showAdminStatus('Claude is rewriting the app and committing to GitHub. This may take 30–90 seconds...','info');
   try{
-    const currentHTML=document.documentElement.outerHTML;
-    const response=await fetch('https://api.anthropic.com/v1/messages',{
+    const res=await fetch(ADMIN_WORKER_URL.replace(/\/$/,'')+'/apply',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:32000,
-        messages:[{
-          role:'user',
-          content:'You are an expert front-end developer. Below is the full source of a MotoGP dashboard web app. Apply this change request exactly: "'+text+'"\n\nReturn ONLY the complete modified HTML file — no explanation, no markdown, no code fences. The very first character of your response must be < (the opening of the html tag).\n\nSOURCE:\n'+currentHTML
-        }]
-      })
+      body:JSON.stringify({password:adminPassword,prompt:text})
     });
-    const data=await response.json();
-    if(!response.ok){showAdminStatus('API Error: '+data.error.message,'error');btn.disabled=false;btn.textContent='Apply Change';return;}
-    const newHTML=data.content[0].text.trim();
-    if(!newHTML.startsWith('<')){showAdminStatus('Unexpected response format','error');btn.disabled=false;btn.textContent='Apply Change';return;}
-    document.open();
-    document.write(newHTML);
-    document.close();
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok){
+      showAdminStatus(data.error||('Apply failed ('+res.status+')'),'error');
+      btn.disabled=false;btn.textContent='Apply Change';
+      return;
+    }
+    const shortSha=(data.commit||'').slice(0,7);
+    showAdminStatus('Committed '+shortSha+'. Reloading in 3s...','success');
+    setTimeout(()=>{window.location.reload();},3000);
   }catch(err){
-    showAdminStatus('Error: '+err.message,'error');
-    btn.disabled=false;
-    btn.textContent='Apply Change';
+    showAdminStatus('Network error: '+err.message,'error');
+    btn.disabled=false;btn.textContent='Apply Change';
   }
 }
-async function toggleVoiceInput(){
+function toggleVoiceInput(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){showAdminStatus('Voice input not supported in this browser','error');return;}
+  const btn=document.getElementById('admin-voice-btn');
+  const label=document.getElementById('voice-btn-text');
   if(!isRecording){
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-      mediaRecorder=new MediaRecorder(stream);audioChunks=[];
-      mediaRecorder.ondataavailable=(e)=>audioChunks.push(e.data);
-      mediaRecorder.onstop=async()=>{
-        const blob=new Blob(audioChunks,{type:'audio/webm'});
-        const reader=new FileReader();
-        reader.onload=async()=>{
-          const base64=reader.result.split(',')[1];
-          showAdminStatus('Processing voice...','info');
-          try{
-            const response=await fetch('https://api.anthropic.com/v1/messages',{
-              method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({
-                model:'claude-sonnet-4-20250514',
-                max_tokens:500,
-                messages:[{
-                  role:'user',
-                  content:'Transcribe and summarize the main intent of this voice message. Keep it under 100 words and focus on the change request.'
-                }]
-              })
-            });
-            const data=await response.json();
-            const text=data.content[0].text;
-            const promptEl=document.getElementById('admin-prompt');
-            if(promptEl)promptEl.value=text;
-            showAdminStatus('Voice transcribed!','success');
-          }catch(err){
-            showAdminStatus('Voice processing error','error');
-          }
-        };
-        reader.readAsDataURL(blob);
-      };
-      mediaRecorder.start();
-      isRecording=true;
-      const btn=document.getElementById('admin-voice-btn');
-      if(btn){btn.classList.add('recording');document.getElementById('voice-btn-text').textContent='Recording...';}
-      showAdminStatus('Recording... Click Voice button to stop','info');
-    }catch(err){
-      showAdminStatus('Microphone access denied','error');
-    }
+    voiceRec=new SR();
+    voiceRec.lang='nl-NL';
+    voiceRec.interimResults=false;
+    voiceRec.maxAlternatives=1;
+    voiceRec.onresult=(e)=>{
+      const text=e.results[0][0].transcript;
+      const promptEl=document.getElementById('admin-prompt');
+      if(promptEl)promptEl.value=(promptEl.value?promptEl.value+' ':'')+text;
+      showAdminStatus('Voice transcribed!','success');
+    };
+    voiceRec.onerror=(e)=>showAdminStatus('Voice error: '+e.error,'error');
+    voiceRec.onend=()=>{
+      isRecording=false;
+      if(btn)btn.classList.remove('recording');
+      if(label)label.textContent='Voice';
+    };
+    try{voiceRec.start();}catch(err){showAdminStatus('Voice start failed: '+err.message,'error');return;}
+    isRecording=true;
+    if(btn)btn.classList.add('recording');
+    if(label)label.textContent='Stop';
+    showAdminStatus('Recording... click again to stop','info');
   } else {
-    if(mediaRecorder)mediaRecorder.stop();
-    isRecording=false;
-    const btn=document.getElementById('admin-voice-btn');
-    if(btn){btn.classList.remove('recording');document.getElementById('voice-btn-text').textContent='Voice';}
+    if(voiceRec)voiceRec.stop();
   }
 }
 

@@ -1,0 +1,16 @@
+name = "mgp2026-admin"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Non-secret config. Adjust if you fork the repo or rename the file.
+[vars]
+GITHUB_OWNER = "BubbelMedia"
+GITHUB_REPO = "mgp2026"
+GITHUB_BRANCH = "main"
+GITHUB_FILE_PATH = "index.html"
+CLAUDE_MODEL = "claude-sonnet-4-6"
+
+# Secrets (set via `wrangler secret put <NAME>`):
+#   ANTHROPIC_API_KEY
+#   ADMIN_PASSWORD
+#   GITHUB_TOKEN
